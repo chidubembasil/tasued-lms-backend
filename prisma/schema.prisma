@@ -1,0 +1,459 @@
+generator client {
+  provider = "prisma-client"
+  output = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  STUDENT
+  LECTURER
+  TEACHER_ASSISTANT
+}
+
+enum levelType {
+  GLOBAL
+  FACULTY
+  DEPARTMENT
+  COURSE
+  OFFERING
+}
+
+enum FacultyStatus {
+  OPEN
+  CLOSED
+  FINISHED
+  DRAFT
+}
+
+enum Status {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum SubmissionStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+}
+
+enum RecordingStatus {
+  READY 
+  FAILED
+  EXPIRED
+}
+
+enum VideoProvider {
+  ONEDRIVE_DIRECT // NEW default
+}
+enum ImportStatus { 
+  PROCESSING 
+  COMPLETED 
+  FAILED 
+}
+
+enum InvitationStatus {
+  PENDING
+  INVITED
+  FAILED
+}
+
+model User {
+  id                String        @id @default(uuid())
+  name              String
+  email             String        @unique
+  password          String
+  emailVerified     Boolean       @default(false)
+  otpHash           String?
+  otpExpiresAt      DateTime?
+  matricNumber      String?       @unique
+  staffId           String?       @unique
+  guestObjectId     String?       @unique
+  invitationStatus  InvitationStatus @default(PENDING)
+  mustChangePassword Boolean      @default(false)
+  otpAttempts       Int           @default(0)
+  failedLogins      Int           @default(0)
+  lockedUntil       DateTime?
+
+  roles             Role[]
+  enrolment         Enrolment[]
+  discussionPost    DiscussionPost[]
+  attendance        Attendance[]
+  submission        AssignmentSubmission[]
+  recordingProgress RecordingProgress[]
+
+  @@map("user")
+  session           Session[]
+
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+}
+
+
+
+model ImportJob {
+  id         String       @id @default(uuid())
+  uploadedBy String
+  fileName   String
+  status     ImportStatus @default(PROCESSING)
+  total      Int          @default(0)
+  succeeded  Int          @default(0)
+  failed     Int          @default(0)
+  errors     Json?
+
+  createdAt  DateTime     @default(now())
+  finishedAt DateTime?
+}
+
+model Session {
+  id                String    @id @default(uuid())
+
+  tokenHash         String    @unique
+
+  user              User      @relation(fields: [userId], references: [id])
+  userId            String
+
+  lastActivityAt    DateTime  @default(now())
+  expiresAt         DateTime
+
+  revokedAt         DateTime?
+  replacedByTokenId String?
+
+  createdAt         DateTime  @default(now())
+}
+
+//ADMIN 
+
+//Admin model
+model Admin {
+  id              String         @id @default(uuid())
+  name            String
+  email           String         @unique
+  password        String
+  emailVerified   Boolean        @default(false)
+  otpHash         String?
+  otpExpiresAt    DateTime?
+  failedLogins    Int            @default(0)
+  lockedUntil     DateTime?
+  session         AdminSession[]
+    
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+// Admin Session
+model AdminSession {
+  id                String    @id @default(uuid())
+  tokenHash         String    @unique
+  lastActivityAt    DateTime  @default(now())
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String?
+
+  admin             Admin     @relation(fields: [adminId], references: [id])
+  adminId           String
+
+  createdAt         DateTime  @default(now())
+}
+
+
+//ROLE AND PERMISSION
+model Role {
+  id              String        @id @default(uuid())
+  role            UserRole?
+  userId          String        @unique
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scope           Scope[]
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model Scope {
+  id          String            @id @default(uuid())
+  level       levelType
+  target      String
+  startAt     DateTime?
+  endAt       DateTime?
+  roleId      String
+  role        Role              @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  
+  @@unique([roleId, level, target])
+}
+
+model AcademicSession {
+  id            String            @id @default(uuid())
+  name          String            @unique
+  startsAt      DateTime
+  endsAt        DateTime
+  isCurrent     Boolean           @default(false)
+  semesters     Semester[]
+
+  @@map("academic_session")
+}
+
+model Faculty {
+  id            String            @id @default(uuid())
+  name          String
+  code          String            @unique
+  deanId        String?
+  isActive      Boolean           @default(true)
+  department    Department[]
+
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+}
+
+model Department {
+  id            String            @id @default(uuid())
+  name          String
+  code          String            @unique
+  hodId         String?
+  isActive      Boolean           @default(true)
+  facultyId     String
+  faculty       Faculty           @relation(fields: [facultyId], references: [id], onDelete: Cascade)
+  course        Course[]
+
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+}
+
+model Semester {
+  id            String            @id @default(uuid())
+  name          String
+  startAt       DateTime
+  endAt         DateTime
+  regStartAt    DateTime
+  regEndAt      DateTime
+  academicId    String
+  academic      AcademicSession   @relation(fields: [academicId], references: [id], onDelete: Cascade)
+  offerings     Offerings[]
+
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+}
+
+model Course {
+  id            String            @id @default(uuid())
+  title         String
+  description   String            @db.Text
+  code          String            @unique
+  creditUnit    String
+  level         String
+  isActive      Boolean           @default(true)
+  departmentId  String
+  department    Department        @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  offerings     Offerings[]
+  modules       Modules[]
+
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+}
+
+model Offerings {
+  id            String             @id @default(uuid())
+  status        FacultyStatus      @default(DRAFT)
+  courseId      String
+  course        Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  semesterId    String
+  semester      Semester           @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  enrolment     Enrolment[]
+  classSession  ClassSession[]
+  recording     Recording[]
+}
+
+model Enrolment {
+  id            String              @id @default(uuid())
+  userId        String
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offeringId    String
+  offering      Offerings           @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  enroledAt     DateTime            @default(now())
+
+  @@unique([userId, offeringId])
+}
+
+model Modules {
+  id                  String               @id @default(uuid())
+  publicId            String               @unique
+  title               String
+  short_description   String
+  description         String               @db.Text
+  thumbnail           String?
+  status              Status               @default(DRAFT)
+  courseId            String
+  course              Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  unit                Unit[]
+
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+}
+
+model Unit {
+  id                  String               @id @default(uuid())
+  publicId            String               @unique
+  title               String
+  short_description   String
+  description         String               @db.Text
+  thumbnail           String?
+  contentUrl          String
+  extraContent        String?              @db.Text
+  status              Status               @default(DRAFT)
+  blobName            String?              @unique
+  originalName        String?
+  contentType         String?
+  sizeBytes           Int?
+  moduleId            String
+  module              Modules              @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  assignments         Assignments[]
+  discussion          Discussion?
+  classSession        ClassSession[]
+
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+}
+
+model Discussion {
+  id                  String               @id @default(uuid())
+  title               String
+  unitId              String?              @unique
+  unit                Unit?                @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  isLocked            Boolean              @default(false)
+  posts               DiscussionPost[]
+
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+}
+
+model DiscussionPost {
+  id                  String               @id @default(uuid())
+  discussionId        String
+  discussion          Discussion           @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  userId              String
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content             Json
+  parentId            String?
+
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+}
+
+model Assignments {
+  id                  String                  @id @default(uuid())
+  publicId            String                  @unique
+  questions           Json[]
+  answers             Json[]
+  unitId              String
+  unit                Unit                    @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  submission          AssignmentSubmission[]
+
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+}
+
+model AssignmentSubmission {
+  id                  String            @id @default(uuid())
+  assignmentId        String
+  assignment          Assignments       @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  userId              String
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status              SubmissionStatus  @default(DRAFT)
+  submittedAt         DateTime?
+  content             Json?
+  fileUrl             String?
+  fileName            String?
+  fileSize            Int?
+  score               Float?
+  feedback            String?            @db.Text
+  gradedAt            DateTime?
+  gradedById          String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  @@unique([assignmentId, userId])
+}
+
+model ClassSession {
+  id                  String              @id @default(uuid())
+  scheduledStart      DateTime
+  scheduledEnd        DateTime
+  actualStart         DateTime?
+  actualEnd           DateTime?
+  teamsMeetingId      String?             @unique
+  teamsJoinUrl        String?             @db.Text
+  teamsOrganizerId    String?
+  classCode           String?
+  unitId              String?
+  unit                Unit?               @relation(fields: [unitId], references: [id])
+  offeringId          String
+  offering            Offerings           @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  recording           Recording[]
+  attendance          Attendance[]
+}
+
+model Attendance {
+  id                  String              @id @default(uuid())
+  userId              String
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  classSessionId      String
+  classSession        ClassSession        @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
+  status              AttendanceStatus    @default(ABSENT)
+  joinedAt            DateTime?
+  leftAt              DateTime?
+  durationMinutes     Int?
+  isLate              Boolean             @default(false)
+  notes               String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@unique([userId, classSessionId])
+}
+
+model Recording {
+  id                  String              @id @default(uuid())
+  publicId            String              @unique @default(cuid())
+  title               String?
+  classSessionId      String?
+  classSession        ClassSession?       @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
+  offeringId          String
+  offering            Offerings           @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  teamsMeetingId      String?
+  teamsRecordingId    String              @unique // driveItemId from central OneDrive
+  graphDriveId        String?
+  sourceUrl           String?             @db.Text
+  status              RecordingStatus     @default(READY)
+  provider            VideoProvider       @default(ONEDRIVE_DIRECT)
+  durationSeconds     Int?
+  thumbnailUrl        String?
+  progresses          RecordingProgress[]
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@index([offeringId])
+  @@index([status])
+}
+
+model RecordingProgress {
+  id                  String              @id @default(uuid())
+  userId              String
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recordingId         String
+  recording           Recording           @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+  lastPositionSec     Int                 @default(0)
+  durationWatchedSec  Int                 @default(0)
+  isCompleted         Boolean             @default(false)
+  playbackRate        Float?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@unique([userId, recordingId])
+  @@map("recording_progress")
+}

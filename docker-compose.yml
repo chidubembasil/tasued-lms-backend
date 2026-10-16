@@ -1,0 +1,100 @@
+
+services:
+  app:
+    build:
+      context: .
+      target: runtime
+    container_name: tasued-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: "postgresql://postgres:BasilDgre8@localhost:5432/tasued"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clamav:
+        condition: service_started
+    networks:
+      - tasued-network
+
+  postgres:
+    image: postgres:17
+    container_name: tasued-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tasued}
+      POSTGRES_USER: ${POSTGRES_USER:-tasued}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - tasued-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: tasued-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks:
+      - tasued-network
+
+  clamav:
+    image: clamav/clamav:stable
+    container_name: tasued-clamav
+    restart: unless-stopped
+    volumes:
+      - clamav-data:/var/lib/clamav
+    networks:
+      - tasued-network
+
+  # Run explicitly before starting the API.
+  migrate:
+    build:
+      context: .
+      target: build
+    container_name: tasued-migrate
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-tasued}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-tasued}?schema=public"
+    command: ["pnpm", "exec", "prisma", "migrate", "deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - tasued-network
+    profiles:
+      - migrations
+
+volumes:
+  postgres-data:
+  redis-data:
+  clamav-data:
+
+networks:
+  tasued-network:
+    driver: bridge
