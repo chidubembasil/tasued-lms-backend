@@ -1,0 +1,13 @@
+services:
+  api:
+    build:
+      context: .
+      target: production
+    ports:
+      - "3000:3000"
+    # .env.production holds the PRODUCTION DATABASE_URL and the other live secrets; never commit it
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+    restart: unless-stopped

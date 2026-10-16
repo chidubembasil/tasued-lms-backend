@@ -1,0 +1,54 @@
+services:
+  api:
+    build:
+      context: .
+      target: development
+    # regenerate the Prisma client inside the container, then start watch mode
+    command: sh -c "pnpm exec prisma generate && pnpm start:dev"
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      # these override whatever .env says, so the container always uses the dev database below
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/tasued_dev
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
+      CHOKIDAR_USEPOLLING: "true" # file watching over Docker Desktop on Windows
+    volumes:
+      - .:/app
+      - /app/node_modules # keep the container's own Linux node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+      clamav:
+        condition: service_started
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tasued_dev
+    ports:
+      - "5433:5432" # host port 5433 so it never clashes with a Postgres installed on your PC
+    volumes:
+      - pgdata-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tasued_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  clamav:
+    image: clamav/clamav:stable
+    ports:
+      - "3310:3310"
+    volumes:
+      - clamav-db:/var/lib/clamav
+
+volumes:
+  pgdata-dev:
+  clamav-db:
+    name: clamav-db # reuses the signatures volume you already created

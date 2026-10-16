@@ -1,16 +1,40 @@
-
 # syntax=docker/dockerfile:1
-
-# ---------- Dependencies and build ----------
-FROM node:22-bookworm-slim AS build
+# ---------- Base ----------
+FROM node:22-bookworm-slim AS base
 
 RUN corepack enable
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml ./
+
+# ---------- Development (hot reload, used by docker-compose.dev.yml) ----------
+FROM base AS development
+
+ENV NODE_ENV=development
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml* ./
 RUN pnpm install --frozen-lockfile
 
 COPY . .
+
+# placeholder so prisma.config.ts can load; no database is contacted by generate
+ENV DATABASE_URL="postgresql://user:password@localhost:5432/placeholder"
+RUN pnpm exec prisma generate
+
+EXPOSE 3000
+
+CMD ["pnpm", "start:dev"]
+
+
+# ---------- Build ----------
+FROM base AS build
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml* ./
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+
+# placeholder so prisma.config.ts can load; no database is contacted by generate
+ENV DATABASE_URL="postgresql://user:password@localhost:5432/placeholder"
 
 # Generate Prisma Client using your Prisma 7 configuration
 RUN pnpm exec prisma generate
@@ -20,17 +44,14 @@ RUN pnpm build
 
 
 # ---------- Production dependencies ----------
-FROM node:22-bookworm-slim AS production-deps
+FROM base AS production-deps
 
-RUN corepack enable
-WORKDIR /app
-
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml* ./
 RUN pnpm install --prod --frozen-lockfile
 
 
-# ---------- Runtime ----------
-FROM node:22-bookworm-slim AS runtime
+# ---------- Production runtime (keep this the LAST stage so it is the default build) ----------
+FROM node:22-bookworm-slim AS production
 
 ENV NODE_ENV=production
 ENV PORT=3000
@@ -40,10 +61,7 @@ WORKDIR /app
 # Production dependencies
 COPY --from=production-deps /app/node_modules ./node_modules
 
-# Generated Prisma Client
-COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
-
-# Application output
+# Application output (the Prisma client is generated into src/generated and compiled into dist)
 COPY --from=build /app/dist ./dist
 
 # Package metadata
